@@ -5,6 +5,7 @@ use std::collections::HashSet;
 
 use poke_engine::choices::{Choices, MoveCategory, MOVES};
 use poke_engine::engine::abilities::Abilities;
+use poke_engine::engine::evaluate::evaluate as evaluate_state;
 use poke_engine::engine::generate_instructions::{
     calculate_both_damage_rolls, generate_instructions_from_move_pair,
 };
@@ -1123,6 +1124,18 @@ fn calculate_damage(
     Ok((s1_py_rolls, s2_py_rolls))
 }
 
+/// Static evaluation of a position, from side one's perspective.
+///
+/// The search already uses this internally at its leaves; exposing it lets a
+/// caller score a position without paying for a tree, which is what a
+/// matrix-game solver at the root needs — a payoff per cell, with no sampling
+/// noise to solve an equilibrium against.
+#[pyfunction]
+fn evaluate(py_state: PyState) -> PyResult<f32> {
+    let state: State = py_state.into();
+    Ok(evaluate_state(&state))
+}
+
 #[pymodule]
 #[pyo3(name = "poke_engine")]
 fn py_poke_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -1130,6 +1143,7 @@ fn py_poke_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(generate_instructions, m)?)?;
     m.add_function(wrap_pyfunction!(id, m)?)?;
     m.add_function(wrap_pyfunction!(mcts, m)?)?;
+    m.add_function(wrap_pyfunction!(evaluate, m)?)?;
     m.add_class::<PyState>()?;
     m.add_class::<PySide>()?;
     m.add_class::<PySideConditions>()?;
