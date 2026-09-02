@@ -5146,6 +5146,107 @@ fn test_rest_does_not_activate_when_fainted() {
     assert_eq!(expected_instructions, vec_of_instructions);
 }
 
+#[cfg(any(feature = "gen9", feature = "champions"))]
+#[test]
+fn test_rest_fails_at_full_hp() {
+    // Showdown: Rest fails outright when the user is already at full HP
+    let mut state = State::default();
+
+    let vec_of_instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::REST,
+        Choices::SPLASH,
+    );
+
+    let expected_instructions = vec![StateInstructions {
+        percentage: 100.0,
+        instruction_list: vec![],
+    }];
+    assert_eq!(expected_instructions, vec_of_instructions);
+}
+
+#[cfg(any(feature = "gen9", feature = "champions"))]
+#[test]
+fn test_rest_fails_against_sleep_immunity() {
+    let mut state = State::default();
+    state.side_one.get_active().hp = 50;
+    state.side_one.get_active().ability = Abilities::INSOMNIA;
+
+    let vec_of_instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::REST,
+        Choices::SPLASH,
+    );
+
+    let expected_instructions = vec![StateInstructions {
+        percentage: 100.0,
+        instruction_list: vec![],
+    }];
+    assert_eq!(expected_instructions, vec_of_instructions);
+}
+
+#[cfg(any(feature = "gen9", feature = "champions"))]
+#[test]
+fn test_rest_fails_under_misty_terrain_when_grounded() {
+    let mut state = State::default();
+    state.side_one.get_active().hp = 50;
+    state.terrain.terrain_type = Terrain::MISTYTERRAIN;
+    state.terrain.turns_remaining = 5;
+
+    let vec_of_instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::REST,
+        Choices::SPLASH,
+    );
+
+    let expected_instructions = vec![StateInstructions {
+        percentage: 100.0,
+        instruction_list: vec![Instruction::DecrementTerrainTurnsRemaining],
+    }];
+    assert_eq!(expected_instructions, vec_of_instructions);
+}
+
+#[cfg(any(feature = "gen9", feature = "champions"))]
+#[test]
+fn test_rest_works_under_electric_terrain_when_not_grounded() {
+    // Electric Terrain only reaches grounded pokemon
+    let mut state = State::default();
+    state.side_one.get_active().hp = 50;
+    state.side_one.get_active().types = (PokemonType::FLYING, PokemonType::TYPELESS);
+    state.terrain.terrain_type = Terrain::ELECTRICTERRAIN;
+    state.terrain.turns_remaining = 5;
+
+    let vec_of_instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::REST,
+        Choices::SPLASH,
+    );
+
+    let expected_instructions = vec![StateInstructions {
+        percentage: 100.0,
+        instruction_list: vec![
+            Instruction::ChangeStatus(ChangeStatusInstruction {
+                side_ref: SideReference::SideOne,
+                pokemon_index: PokemonIndex::P0,
+                old_status: PokemonStatus::NONE,
+                new_status: PokemonStatus::SLEEP,
+            }),
+            Instruction::SetRestTurns(SetSleepTurnsInstruction {
+                side_ref: SideReference::SideOne,
+                pokemon_index: PokemonIndex::P0,
+                new_turns: 3,
+                previous_turns: 0,
+            }),
+            Instruction::Heal(HealInstruction {
+                side_ref: SideReference::SideOne,
+                heal_amount: 50,
+            }),
+            Instruction::DecrementTerrainTurnsRemaining,
+        ],
+    }];
+    assert_eq!(expected_instructions, vec_of_instructions);
+}
+
 #[test]
 fn test_petaya_berry_activate_after_taking_damage_when_slower() {
     let mut state = State::default();

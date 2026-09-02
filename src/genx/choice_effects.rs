@@ -1391,11 +1391,33 @@ pub fn choice_special_effect(
             state.reset_boosts(&SideReference::SideTwo, &mut instructions.instruction_list);
         }
         Choices::REST => {
+            // Rest fails at full HP, against sleep immunity, and for a grounded
+            // pokemon under Electric or Misty Terrain. Only the "already asleep"
+            // and Electric Terrain cases were checked, and the terrain check did
+            // not care whether the user was grounded.
             let electric_terrain_active = state.terrain_is_active(&Terrain::ELECTRICTERRAIN);
+            let misty_terrain_active = state.terrain_is_active(&Terrain::MISTYTERRAIN);
+            let sun_active = state.weather_is_active(&Weather::SUN)
+                || state.weather_is_active(&Weather::HARSHSUN);
             let attacking_side = state.get_side(attacking_side_ref);
             let active_index = attacking_side.active_index;
             let active_pkmn = attacking_side.get_active();
-            if active_pkmn.status != PokemonStatus::SLEEP && !electric_terrain_active {
+            let terrain_blocks_sleep =
+                active_pkmn.is_grounded() && (electric_terrain_active || misty_terrain_active);
+            let ability_blocks_sleep = matches!(
+                active_pkmn.ability,
+                Abilities::INSOMNIA
+                    | Abilities::VITALSPIRIT
+                    | Abilities::SWEETVEIL
+                    | Abilities::COMATOSE
+                    | Abilities::PURIFYINGSALT
+            ) || (active_pkmn.ability == Abilities::LEAFGUARD
+                && sun_active);
+            if active_pkmn.status != PokemonStatus::SLEEP
+                && active_pkmn.hp < active_pkmn.maxhp
+                && !terrain_blocks_sleep
+                && !ability_blocks_sleep
+            {
                 let heal_amount = active_pkmn.maxhp - active_pkmn.hp;
                 instructions
                     .instruction_list
