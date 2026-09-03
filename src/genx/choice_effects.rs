@@ -1541,7 +1541,11 @@ pub fn choice_special_effect(
             let attacker = attacking_side.get_active();
             let defender = defending_side.get_active();
 
-            if type_effectiveness_modifier(&PokemonType::NORMAL, &defender) == 0.0 {
+            // Final Gambit is Fighting-typed; only a Ghost is immune to it. (The
+            // Normal check here happened to agree, since Ghost is the only
+            // immunity either type has, but the instruction generator's copy of
+            // this check used GHOST and had it backwards.)
+            if type_effectiveness_modifier(&PokemonType::FIGHTING, &defender) == 0.0 {
                 return;
             }
 

@@ -723,3 +723,71 @@ fn test_focuspunch_after_status_move() {
     }];
     assert_eq!(expected_instructions, vec_of_instructions);
 }
+
+// ---------------------------------------------------------------------------
+// Fixed-damage moves: the damage-roll path had no coverage at all, which is how
+// three of them ended up testing the wrong type's effectiveness. The instruction
+// path (tested in test_battle_mechanics.rs) was right, so the two disagreed.
+
+fn fixed_damage_roll(
+    move_id: Choices,
+    defender_type: PokemonType,
+    attacker_hp: i16,
+) -> Option<Vec<i16>> {
+    let mut state = State::default();
+    state.side_one.get_active().hp = attacker_hp;
+    state.side_two.get_active().types.0 = defender_type;
+    state.side_two.get_active().types.1 = PokemonType::TYPELESS;
+    state
+        .side_one
+        .get_active()
+        .replace_move(PokemonMoveIndex::M0, move_id);
+    state
+        .side_two
+        .get_active()
+        .replace_move(PokemonMoveIndex::M0, Choices::SPLASH);
+    let mut choice = state.side_one.get_active().moves[&PokemonMoveIndex::M0]
+        .choice
+        .clone();
+    choice.move_id = move_id;
+    let defending_choice = state.side_two.get_active().moves[&PokemonMoveIndex::M0]
+        .choice
+        .clone();
+    poke_engine::engine::generate_instructions::calculate_damage_rolls(
+        state.clone(),
+        &SideReference::SideOne,
+        choice,
+        &defending_choice,
+    )
+}
+
+#[test]
+fn test_finalgambit_damage_rolls_respect_its_fighting_type() {
+    // Final Gambit is Fighting: a Ghost is immune, a Normal is not. The check
+    // used to read Ghost effectiveness, which is exactly backwards.
+    assert_eq!(
+        fixed_damage_roll(Choices::FINALGAMBIT, PokemonType::GHOST, 100),
+        None
+    );
+    assert_eq!(
+        fixed_damage_roll(Choices::FINALGAMBIT, PokemonType::NORMAL, 100),
+        Some(vec![100])
+    );
+}
+
+#[test]
+fn test_endeavor_damage_rolls_respect_its_normal_type() {
+    assert_eq!(
+        fixed_damage_roll(Choices::ENDEAVOR, PokemonType::GHOST, 1),
+        None
+    );
+    assert!(fixed_damage_roll(Choices::ENDEAVOR, PokemonType::NORMAL, 1).is_some());
+}
+
+#[test]
+fn test_painsplit_damage_rolls_are_not_blocked_by_a_type() {
+    // Pain Split is a status move, and type immunity does not apply to those, so
+    // it works on a Ghost and on a Normal alike.
+    assert!(fixed_damage_roll(Choices::PAINSPLIT, PokemonType::GHOST, 1).is_some());
+    assert!(fixed_damage_roll(Choices::PAINSPLIT, PokemonType::NORMAL, 1).is_some());
+}

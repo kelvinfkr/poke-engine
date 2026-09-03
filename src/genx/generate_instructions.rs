@@ -4421,13 +4421,18 @@ pub fn calculate_damage_rolls(
             return Some(vec![attacker_active.level as i16]);
         }
         Choices::FINALGAMBIT => {
-            if type_effectiveness_modifier(&PokemonType::GHOST, &defender_active) == 0.0 {
+            // Final Gambit is Fighting, not Ghost: it is blocked by a Ghost-type
+            // and lands on everything else. Checking Ghost effectiveness had it
+            // exactly backwards -- full damage through a Ghost, nothing at all
+            // against a Normal.
+            if type_effectiveness_modifier(&PokemonType::FIGHTING, &defender_active) == 0.0 {
                 return None;
             }
             return Some(vec![attacker_active.hp]);
         }
         Choices::ENDEAVOR => {
-            if type_effectiveness_modifier(&PokemonType::GHOST, &defender_active) == 0.0
+            // Endeavor is a Normal-type move, so a Ghost is immune to it.
+            if type_effectiveness_modifier(&PokemonType::NORMAL, &defender_active) == 0.0
                 || defender_active.hp <= attacker_active.hp
             {
                 return None;
@@ -4435,9 +4440,9 @@ pub fn calculate_damage_rolls(
             return Some(vec![defender_active.hp - attacker_active.hp]);
         }
         Choices::PAINSPLIT => {
-            if type_effectiveness_modifier(&PokemonType::GHOST, &defender_active) == 0.0
-                || defender_active.hp <= attacker_active.hp
-            {
+            // Pain Split is a *status* move, and type immunity does not apply to
+            // status moves, so it works on a Ghost like it works on anything else.
+            if defender_active.hp <= attacker_active.hp {
                 return None;
             }
             return Some(vec![
