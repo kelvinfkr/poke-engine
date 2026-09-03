@@ -1124,6 +1124,14 @@ fn calculate_damage(
     Ok((s1_py_rolls, s2_py_rolls))
 }
 
+/// Set how many turns of random play MCTS runs at each leaf before scoring it.
+///
+/// Zero restores the original static-leaf behaviour. See `mcts::PLAYOUT_TURNS`.
+#[pyfunction]
+fn set_playout_turns(turns: u32) {
+    poke_engine::mcts::PLAYOUT_TURNS.store(turns, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Static evaluation of a position, from side one's perspective.
 ///
 /// The search already uses this internally at its leaves; exposing it lets a
@@ -1144,6 +1152,7 @@ fn py_poke_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(id, m)?)?;
     m.add_function(wrap_pyfunction!(mcts, m)?)?;
     m.add_function(wrap_pyfunction!(evaluate, m)?)?;
+    m.add_function(wrap_pyfunction!(set_playout_turns, m)?)?;
     m.add_class::<PyState>()?;
     m.add_class::<PySide>()?;
     m.add_class::<PySideConditions>()?;

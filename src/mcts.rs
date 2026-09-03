@@ -6,7 +6,18 @@ use crate::state::State;
 use rand::prelude::*;
 use rand::rng;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
+
+/// How many turns of random play to run at a leaf before scoring it.
+///
+/// Zero (the default) keeps the original behaviour: a leaf is scored by the
+/// static evaluation the moment it is expanded. A static score a few plies in
+/// cannot tell who wins a Protect / Toxic / Recover war, because nothing in the
+/// snapshot runs out — a playout lets the residual damage, the PP and the
+/// counters actually accrue before the position is judged. Set from Python via
+/// `set_playout_turns`.
+pub static PLAYOUT_TURNS: AtomicU32 = AtomicU32::new(0);
 
 fn sigmoid(x: f32) -> f32 {
     // Tuned so that ~200 points is very close to 1.0
@@ -187,18 +198,52 @@ impl Node {
         (*self.parent).backpropagate(score, state);
     }
 
-    pub fn rollout(&mut self, state: &mut State, root_eval: &f32) -> f32 {
-        let battle_is_over = state.battle_is_over();
-        if battle_is_over == 0.0 {
-            let eval = evaluate(state);
-            sigmoid(eval - root_eval)
-        } else {
-            if battle_is_over == -1.0 {
-                0.0
-            } else {
-                battle_is_over
+    pub fn rollout(&mut self, state: &mut State, root_eval: &f32, rng: &mut impl Rng) -> f32 {
+        let playout_turns = PLAYOUT_TURNS.load(Ordering::Relaxed);
+        let mut battle_is_over = state.battle_is_over();
+        // play forward with uniformly random moves, remembering every branch we
+        // applied so the state can be restored in reverse order afterwards — the
+        // tree above us relies on this node leaving the state exactly as it found it
+        let mut applied: Vec<StateInstructions> = Vec::new();
+        let mut turns = 0;
+        while battle_is_over == 0.0 && turns < playout_turns {
+            let (s1_options, s2_options) = state.get_all_options();
+            if s1_options.is_empty() || s2_options.is_empty() {
+                break;
             }
+            let s1_move = s1_options[rng.random_range(0..s1_options.len())];
+            let s2_move = s2_options[rng.random_range(0..s2_options.len())];
+            let branches = generate_instructions_from_move_pair(state, &s1_move, &s2_move, false);
+            if branches.is_empty() {
+                break;
+            }
+            let total: f32 = branches.iter().map(|b| b.percentage.max(0.0)).sum();
+            let mut threshold = rng.random_range(0.0..total.max(f32::MIN_POSITIVE));
+            let mut chosen = branches.len() - 1;
+            for (index, branch) in branches.iter().enumerate() {
+                threshold -= branch.percentage.max(0.0);
+                if threshold <= 0.0 {
+                    chosen = index;
+                    break;
+                }
+            }
+            let branch = branches[chosen].clone();
+            state.apply_instructions(&branch.instruction_list);
+            applied.push(branch);
+            battle_is_over = state.battle_is_over();
+            turns += 1;
         }
+        let score = if battle_is_over == 0.0 {
+            sigmoid(evaluate(state) - root_eval)
+        } else if battle_is_over == -1.0 {
+            0.0
+        } else {
+            battle_is_over
+        };
+        for branch in applied.iter().rev() {
+            state.reverse_instructions(&branch.instruction_list);
+        }
+        score
     }
 }
 
@@ -256,7 +301,7 @@ fn mcts_iteration(
 ) {
     let (mut new_node, s1_move, s2_move) = unsafe { root_node.selection(state, children, rng) };
     new_node = unsafe { (*new_node).expand(state, s1_move, s2_move, children, rng) };
-    let rollout_result = unsafe { (*new_node).rollout(state, root_eval) };
+    let rollout_result = unsafe { (*new_node).rollout(state, root_eval, rng) };
     unsafe { (*new_node).backpropagate(rollout_result, state) }
 }
 

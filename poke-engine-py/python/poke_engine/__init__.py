@@ -146,7 +146,8 @@ class MctsResult:
 
 
 def monte_carlo_tree_search(
-    state: State, duration_ms: int = 1000, iterations: int = 0, threads: int = 1
+    state: State, duration_ms: int = 1000, iterations: int = 0, threads: int = 1,
+    playout_turns: int = 0,
 ) -> MctsResult:
     """
     Perform monte-carlo-tree-search on the given state and for the given duration
@@ -162,6 +163,7 @@ def monte_carlo_tree_search(
     :return: the result of the search
     :rtype: MctsResult
     """
+    set_playout_turns(playout_turns)
     return MctsResult._from_rust(mcts(state, duration_ms, iterations, threads))
 
 
