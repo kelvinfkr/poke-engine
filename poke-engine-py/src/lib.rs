@@ -12,7 +12,7 @@ use poke_engine::engine::generate_instructions::{
 use poke_engine::engine::items::Items;
 use poke_engine::engine::state::{MoveChoice, PokemonVolatileStatus, Terrain, Weather};
 use poke_engine::instruction::{Instruction, StateInstructions};
-use poke_engine::mcts::{perform_mcts, MctsResult, MctsSideResult};
+use poke_engine::mcts::{perform_mcts_seeded, MctsResult, MctsSideResult};
 use poke_engine::mcts_threaded::perform_mcts_shared_tree;
 use poke_engine::pokemon::PokemonName;
 use poke_engine::search::iterative_deepen_expectiminimax;
@@ -933,6 +933,7 @@ fn mcts(
     duration_ms: u64,
     mut iterations: u32,
     threads: usize,
+    seed: u64,
 ) -> PyResult<PyMctsResult> {
     let mut state: State = py_state.into();
     let duration = Duration::from_millis(duration_ms);
@@ -945,7 +946,7 @@ fn mcts(
             &mut state, s1_options, s2_options, duration, iterations, threads,
         )
     } else {
-        perform_mcts(&mut state, s1_options, s2_options, duration, iterations)
+        perform_mcts_seeded(&mut state, s1_options, s2_options, duration, iterations, seed)
     };
 
     let py_mcts_result = PyMctsResult::from_mcts_result(mcts_result, &state);

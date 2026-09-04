@@ -327,12 +327,39 @@ fn run_mcts_loop(
     root_eval: &f32,
     children: &mut HashMap<(usize, usize, usize), Box<[Node]>>,
     limit: SearchLimit,
+    seed: u64,
 ) {
-    let mut rng = rng();
+    // A zero seed keeps the original entropy-seeded generator. Anything else
+    // makes the whole search reproducible, which is what an offline A/B needs:
+    // without it, the same configuration searched twice disagrees with itself by
+    // more than the effects being measured, and every "paired" comparison is
+    // really two independent draws.
+    if seed == 0 {
+        run_mcts_loop_with(root_node, state, root_eval, children, limit, &mut rng())
+    } else {
+        run_mcts_loop_with(
+            root_node,
+            state,
+            root_eval,
+            children,
+            limit,
+            &mut SmallRng::seed_from_u64(seed),
+        )
+    }
+}
+
+fn run_mcts_loop_with(
+    root_node: &mut Node,
+    state: &mut State,
+    root_eval: &f32,
+    children: &mut HashMap<(usize, usize, usize), Box<[Node]>>,
+    limit: SearchLimit,
+    rng: &mut impl Rng,
+) {
     let start_time = std::time::Instant::now();
     loop {
         for _ in 0..1000 {
-            mcts_iteration(root_node, state, root_eval, children, &mut rng);
+            mcts_iteration(root_node, state, root_eval, children, rng);
         }
         if root_node.times_visited >= 10_000_000 {
             break;
@@ -359,6 +386,25 @@ pub fn perform_mcts(
     max_time: Duration,
     max_iterations: u32,
 ) -> MctsResult {
+    perform_mcts_seeded(
+        state,
+        side_one_options,
+        side_two_options,
+        max_time,
+        max_iterations,
+        0,
+    )
+}
+
+/// `perform_mcts` with a reproducible generator; a seed of 0 means entropy.
+pub fn perform_mcts_seeded(
+    state: &mut State,
+    side_one_options: Vec<MoveChoice>,
+    side_two_options: Vec<MoveChoice>,
+    max_time: Duration,
+    max_iterations: u32,
+    seed: u64,
+) -> MctsResult {
     let mut root_node = Node::new();
     unsafe {
         root_node.populate(side_one_options, side_two_options);
@@ -378,6 +424,7 @@ pub fn perform_mcts(
         &root_eval,
         &mut children,
         search_limit,
+        seed,
     );
 
     let result = MctsResult {

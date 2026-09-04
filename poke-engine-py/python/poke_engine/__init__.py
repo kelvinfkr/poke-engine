@@ -147,7 +147,7 @@ class MctsResult:
 
 def monte_carlo_tree_search(
     state: State, duration_ms: int = 1000, iterations: int = 0, threads: int = 1,
-    playout_turns: int = 0,
+    playout_turns: int = 0, seed: int = 0,
 ) -> MctsResult:
     """
     Perform monte-carlo-tree-search on the given state and for the given duration
@@ -160,11 +160,16 @@ def monte_carlo_tree_search(
     :type iterations: int
     :param threads: number of threads to use for the search
     :type threads: int
+    :param seed: seed for the search's generator; 0 (the default) uses entropy.
+        A non-zero seed makes the whole search reproducible, which is what an
+        offline A/B needs — without it the same configuration searched twice
+        disagrees with itself, and a "paired" comparison is two independent draws.
+    :type seed: int
     :return: the result of the search
     :rtype: MctsResult
     """
     set_playout_turns(playout_turns)
-    return MctsResult._from_rust(mcts(state, duration_ms, iterations, threads))
+    return MctsResult._from_rust(mcts(state, duration_ms, iterations, threads, seed))
 
 
 def iterative_deepening_expectiminimax(
