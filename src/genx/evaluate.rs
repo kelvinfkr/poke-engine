@@ -34,6 +34,10 @@ const POKEMON_PARALYZED: f32 = -25.0;
 const POKEMON_TOXIC: f32 = -30.0;
 const POKEMON_POISONED: f32 = -10.0;
 const POKEMON_BURNED: f32 = -25.0;
+// Toxic is the one status whose cost grows while you sit in it, and the counter is
+// already in the state. Scaled per counter above the first, so `POKEMON_TOXIC`
+// still describes the turn it lands.
+const POKEMON_TOXIC_PER_COUNTER: f32 = -20.0;
 
 const LEECH_SEED: f32 = -30.0;
 const SUBSTITUTE: f32 = 75.0;
@@ -106,6 +110,22 @@ fn get_boost_multiplier(boost: i8) -> f32 {
         -6 => POKEMON_BOOST_MULTIPLIER_NEG_6,
         _ => panic!("Invalid boost value: {}", boost),
     }
+}
+
+/// What sitting in Toxic for `toxic_count` turns is worth, beyond landing it.
+///
+/// A flat `POKEMON_TOXIC` values a Pokemon one turn into Toxic exactly like one six
+/// turns in, so a static leaf reads a stall war as level: nothing in an HP snapshot
+/// ever runs out. Damage is `count/16` of max HP per turn and rising, so the penalty
+/// scales with the count, capped at the HP term — nothing about a Pokemon can be
+/// worth more than the Pokemon. Abilities that *want* the Toxic (Poison Heal, Guts)
+/// are excluded by asking `evaluate_poison` first.
+fn evaluate_toxic_count(pokemon: &Pokemon, toxic_count: i8) -> f32 {
+    if pokemon.status != PokemonStatus::TOXIC || evaluate_poison(pokemon, POKEMON_TOXIC) >= 0.0 {
+        return 0.0;
+    }
+    let extra = POKEMON_TOXIC_PER_COUNTER * (toxic_count.max(1) as f32 - 1.0);
+    extra.max(-POKEMON_HP - POKEMON_TOXIC)
 }
 
 fn evaluate_hazards(pokemon: &Pokemon, side: &Side) -> f32 {
@@ -188,6 +208,8 @@ pub fn evaluate(state: &State) -> f32 {
                     score += CONFUSION;
                 }
 
+                score += evaluate_toxic_count(pkmn, state.side_one.side_conditions.toxic_count);
+
                 score += get_boost_multiplier(state.side_one.attack_boost) * POKEMON_ATTACK_BOOST;
                 score += get_boost_multiplier(state.side_one.defense_boost) * POKEMON_DEFENSE_BOOST;
                 score += get_boost_multiplier(state.side_one.special_attack_boost)
@@ -234,6 +256,8 @@ pub fn evaluate(state: &State) -> f32 {
                     score -= CONFUSION;
                 }
 
+                score -= evaluate_toxic_count(pkmn, state.side_two.side_conditions.toxic_count);
+
                 score -= get_boost_multiplier(state.side_two.attack_boost) * POKEMON_ATTACK_BOOST;
                 score -= get_boost_multiplier(state.side_two.defense_boost) * POKEMON_DEFENSE_BOOST;
                 score -= get_boost_multiplier(state.side_two.special_attack_boost)
@@ -266,4 +290,48 @@ pub fn evaluate(state: &State) -> f32 {
     score -= state.side_two.side_conditions.healing_wish as f32 * HEALING_WISH;
 
     score
+}
+
+#[cfg(test)]
+mod toxic_count_tests {
+    use super::*;
+    use crate::state::{PokemonStatus, State};
+
+    fn toxiced(count: i8) -> State {
+        let mut state = State::default();
+        state.side_one.get_active().status = PokemonStatus::TOXIC;
+        state.side_one.side_conditions.toxic_count = count;
+        state
+    }
+
+    #[test]
+    fn toxic_gets_worse_the_longer_you_sit_in_it() {
+        let one = evaluate(&toxiced(1));
+        let three = evaluate(&toxiced(3));
+        let six = evaluate(&toxiced(6));
+        assert!(
+            three < one,
+            "counter 3 ({three}) should be worse than 1 ({one})"
+        );
+        assert!(
+            six < three,
+            "counter 6 ({six}) should be worse than 3 ({three})"
+        );
+    }
+
+    #[test]
+    fn the_toxic_penalty_never_exceeds_the_pokemon_it_is_on() {
+        let capped = evaluate(&toxiced(20)) - evaluate(&toxiced(1));
+        assert!(
+            capped >= -POKEMON_HP - POKEMON_TOXIC - 0.01,
+            "an unbounded counter would let Toxic outweigh the Pokemon: {capped}"
+        );
+    }
+
+    #[test]
+    fn a_counter_of_one_is_exactly_the_old_flat_penalty() {
+        let mut clean = State::default();
+        clean.side_one.side_conditions.toxic_count = 1;
+        assert_eq!(evaluate(&toxiced(1)) - evaluate(&clean), POKEMON_TOXIC);
+    }
 }
