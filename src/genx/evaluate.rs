@@ -10,8 +10,7 @@ const POKEMON_ALIVE: f32 = 30.0;
 /// scored the same whether one of them was twice as fast — and a 3v3 endgame is
 /// decided by who moves first. Zero by default: this is a search preference, not
 /// a correctness fix, so it has to be measured before it is switched on.
-pub static SPEED_ADVANTAGE: std::sync::atomic::AtomicU32 =
-    std::sync::atomic::AtomicU32::new(0);
+pub static SPEED_ADVANTAGE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 fn speed_advantage() -> f32 {
     f32::from_bits(SPEED_ADVANTAGE.load(std::sync::atomic::Ordering::Relaxed))
@@ -310,7 +309,11 @@ pub fn evaluate(state: &State) -> f32 {
             super::value_net::effective_speed(&state.side_two),
         );
         if (s1 - s2).abs() >= f32::EPSILON {
-            score += if (s1 > s2) != state.trick_room.active { bonus } else { -bonus };
+            score += if (s1 > s2) != state.trick_room.active {
+                bonus
+            } else {
+                -bonus
+            };
         }
     }
 
@@ -369,7 +372,11 @@ mod toxic_count_tests {
         state.side_two.get_active().speed = 100;
 
         let base = evaluate(&state);
-        assert_eq!(base, evaluate(&state), "default must be the original behaviour");
+        assert_eq!(
+            base,
+            evaluate(&state),
+            "default must be the original behaviour"
+        );
 
         SPEED_ADVANTAGE.store(20.0f32.to_bits(), Ordering::Relaxed);
         assert_eq!(evaluate(&state) - base, 20.0);

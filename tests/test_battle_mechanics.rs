@@ -15915,8 +15915,11 @@ fn test_ingrain_and_aquaring_heal_one_sixteenth_at_end_of_turn() {
         .volatile_statuses
         .insert(PokemonVolatileStatus::AQUARING);
 
-    let vec_of_instructions =
-        set_moves_on_pkmn_and_call_generate_instructions(&mut state, Choices::SPLASH, Choices::SPLASH);
+    let vec_of_instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::SPLASH,
+        Choices::SPLASH,
+    );
 
     assert_eq!(
         vec![StateInstructions {

@@ -946,7 +946,9 @@ fn mcts(
             &mut state, s1_options, s2_options, duration, iterations, threads,
         )
     } else {
-        perform_mcts_seeded(&mut state, s1_options, s2_options, duration, iterations, seed)
+        perform_mcts_seeded(
+            &mut state, s1_options, s2_options, duration, iterations, seed,
+        )
     };
 
     let py_mcts_result = PyMctsResult::from_mcts_result(mcts_result, &state);
