@@ -18,8 +18,12 @@ use std::sync::RwLock;
 
 pub const FEATURE_COUNT: usize = 2 * SIDE_FEATURES + GLOBAL_FEATURES;
 const SLOT_FEATURES: usize = 1 + 1 + 7 + 1; // alive, hp fraction, status one-hot, is active
-const SIDE_FEATURES: usize = 6 * SLOT_FEATURES + 7 + 1 + 9 + 2 + 1 + 20;
-const GLOBAL_FEATURES: usize = 8 + 1 + 6 + 1 + 1 + 1;
+                                            // ... plus the active's six stats and its speed after boosts, paralysis and
+                                            // Tailwind. Without them the net cannot tell a Blissey from a Deoxys except by
+                                            // type and HP fraction, and it cannot tell who moves first — which is what
+                                            // decides most 3v3 endgames.
+const SIDE_FEATURES: usize = 6 * SLOT_FEATURES + 7 + 1 + 9 + 2 + 1 + 20 + 6 + 1;
+const GLOBAL_FEATURES: usize = 8 + 1 + 6 + 1 + 1 + 1 + 1;
 /// The static leaf is on a scale where a full-HP Pokémon with an item is ~140
 /// points; the net outputs tanh in [-1, 1] and is mapped onto that scale.
 pub const NET_SCALE: f32 = 300.0;
@@ -103,6 +107,29 @@ fn boost(v: i8) -> f32 {
     v as f32 / 6.0
 }
 
+/// The active's speed as it actually resolves: boosts, paralysis, Tailwind.
+/// Trick Room is global and inverts the comparison, so it stays a global feature.
+pub fn effective_speed(side: &crate::state::Side) -> f32 {
+    let active = side.get_active_immutable();
+    let mut speed = active.speed as f32 * speed_boost_multiplier(side.speed_boost);
+    if active.status == PokemonStatus::PARALYZE {
+        speed *= 0.5;
+    }
+    if side.side_conditions.tailwind > 0 {
+        speed *= 2.0;
+    }
+    speed
+}
+
+fn speed_boost_multiplier(boost: i8) -> f32 {
+    let b = boost.clamp(-6, 6) as f32;
+    if b >= 0.0 {
+        (2.0 + b) / 2.0
+    } else {
+        2.0 / (2.0 - b)
+    }
+}
+
 fn side_features(out: &mut Vec<f32>, side: &crate::state::Side) {
     let active_index = side.active_index;
     let mut alive = 0.0;
@@ -174,6 +201,14 @@ fn side_features(out: &mut Vec<f32>, side: &crate::state::Side) {
     });
     out.push(if n_moves > 0.0 { min_pp } else { 0.0 });
     out.push(alive / 3.0);
+    // the active's raw stats, on a scale where 300 is about the format's ceiling
+    out.push((active.maxhp as f32 / 300.0).min(2.0));
+    out.push((active.attack as f32 / 300.0).min(2.0));
+    out.push((active.defense as f32 / 300.0).min(2.0));
+    out.push((active.special_attack as f32 / 300.0).min(2.0));
+    out.push((active.special_defense as f32 / 300.0).min(2.0));
+    out.push((active.speed as f32 / 300.0).min(2.0));
+    out.push((effective_speed(side) / 400.0).min(2.0));
     let mut types = [0.0f32; 20];
     for t in [active.types.0, active.types.1] {
         let i = t as usize;
@@ -205,6 +240,19 @@ pub fn features(state: &State) -> Vec<f32> {
     out.push((state.terrain.turns_remaining.max(0) as f32).min(8.0) / 8.0);
     out.push(if state.trick_room.active { 1.0 } else { 0.0 });
     out.push((state.trick_room.turns_remaining.max(0) as f32).min(5.0) / 5.0);
+    // who moves first, Trick Room included: 1.0 side one, 0.0 side two, 0.5 a tie
+    let (s1, s2) = (
+        effective_speed(&state.side_one),
+        effective_speed(&state.side_two),
+    );
+    let faster = if (s1 - s2).abs() < f32::EPSILON {
+        0.5
+    } else if (s1 > s2) != state.trick_room.active {
+        1.0
+    } else {
+        0.0
+    };
+    out.push(faster);
     debug_assert_eq!(out.len(), FEATURE_COUNT);
     out
 }
@@ -213,8 +261,36 @@ pub fn features(state: &State) -> Vec<f32> {
 mod tests {
     use super::*;
 
+    /// The model and the blend are process-wide statics, so the tests that set
+    /// them cannot run beside each other — cargo runs tests in parallel threads,
+    /// and one test's `set_model(None)` lands in the middle of another's blend.
+    /// Adding a third test to this module is what exposed it.
+    static GLOBALS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn the_speed_features_say_who_moves_first() {
+        let mut state = State::default();
+        state.side_one.get_active().speed = 100;
+        state.side_two.get_active().speed = 80;
+        let f = features(&state);
+        assert_eq!(f[FEATURE_COUNT - 1], 1.0, "side one is faster");
+
+        // Trick Room flips it, and a Tailwind on the slower side flips it back
+        state.trick_room.active = true;
+        assert_eq!(features(&state)[FEATURE_COUNT - 1], 0.0);
+        state.trick_room.active = false;
+        state.side_two.side_conditions.tailwind = 4;
+        assert_eq!(features(&state)[FEATURE_COUNT - 1], 0.0);
+
+        // paralysis halves it
+        state.side_two.side_conditions.tailwind = 0;
+        state.side_one.get_active().status = PokemonStatus::PARALYZE;
+        assert!(effective_speed(&state.side_one) < effective_speed(&state.side_two));
+    }
+
     #[test]
     fn features_have_the_declared_width_and_no_model_means_the_static_leaf() {
+        let _guard = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
         let state = State::default();
         assert_eq!(features(&state).len(), FEATURE_COUNT);
         set_model(None);
@@ -225,6 +301,7 @@ mod tests {
 
     #[test]
     fn a_loaded_net_moves_the_leaf_by_alpha() {
+        let _guard = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
         // one layer, all-zero weights, bias 1 -> tanh(1) after the last layer
         let net = ValueNet {
             weights: vec![vec![0.0; FEATURE_COUNT]],
