@@ -1144,6 +1144,18 @@ fn evaluate(py_state: PyState) -> PyResult<f32> {
     Ok(evaluate_state(&state))
 }
 
+/// The value the search actually scores a leaf with: the static eval blended with
+/// the loaded net by `set_value_blend`. Equals `evaluate` when no net is loaded.
+#[pyfunction]
+fn evaluate_leaf(py_state: PyState) -> PyResult<f32> {
+    let state: State = py_state.into();
+    let static_value = evaluate_state(&state);
+    Ok(poke_engine::engine::value_net::evaluate_leaf(
+        &state,
+        static_value,
+    ))
+}
+
 /// The engine-native feature vector a loaded value net sees at the leaf.
 #[pyfunction]
 fn features(py_state: PyState) -> PyResult<Vec<f32>> {
@@ -1207,6 +1219,7 @@ fn py_poke_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(evaluate, m)?)?;
     m.add_function(wrap_pyfunction!(set_playout_turns, m)?)?;
     m.add_function(wrap_pyfunction!(features, m)?)?;
+    m.add_function(wrap_pyfunction!(evaluate_leaf, m)?)?;
     m.add_function(wrap_pyfunction!(set_value_model, m)?)?;
     m.add_function(wrap_pyfunction!(set_value_blend, m)?)?;
     m.add_class::<PyState>()?;
