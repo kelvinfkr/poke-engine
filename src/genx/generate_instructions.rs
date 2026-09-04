@@ -56,6 +56,16 @@ pub const BASE_CRIT_CHANCE: f32 = 1.0 / 16.0;
 ))]
 pub const BASE_CRIT_CHANCE: f32 = 1.0 / 24.0;
 
+/// The two moves that need the user asleep: Sleep Talk and Snore. Both execute
+/// while the sleep continues and fail on the turn the user wakes, which is the
+/// opposite of every other move — so the branch that "does nothing" is the one
+/// where the Pokemon wakes up. Modelling Snore as an ordinary move made every
+/// turn containing it unreachable: 90 turns in the capture, 78% of them missed
+/// (ADR 0008's remeasurement), the single largest gap in the difftest.
+fn works_while_asleep(move_id: Choices) -> bool {
+    move_id == Choices::SLEEPTALK || move_id == Choices::SNORE
+}
+
 #[cfg(any(feature = "gen4"))]
 pub const MAX_SLEEP_TURNS: i8 = 4;
 
@@ -1833,7 +1843,7 @@ fn generate_instructions_from_existing_status_conditions(
                                 previous_turns: current_sleep_turns,
                             }));
                     } else if chance_to_wake == 0.0 {
-                        if attacker_choice.move_id == Choices::SLEEPTALK {
+                        if works_while_asleep(attacker_choice.move_id) {
                             // if we are using sleeptalk we want to continue using this move
                             incoming_instructions.instruction_list.push(
                                 Instruction::SetSleepTurns(SetSleepTurnsInstruction {
@@ -1866,7 +1876,7 @@ fn generate_instructions_from_existing_status_conditions(
                         // means you wake up. If the move is sleeptalk these are reversed.
                         let do_nothing_percentage;
                         let mut do_nothing_instructions = incoming_instructions.clone();
-                        if attacker_choice.move_id == Choices::SLEEPTALK {
+                        if works_while_asleep(attacker_choice.move_id) {
                             do_nothing_percentage = chance_to_wake;
                             do_nothing_instructions.instruction_list.push(
                                 Instruction::ChangeStatus(ChangeStatusInstruction {
