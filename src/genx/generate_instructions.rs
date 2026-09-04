@@ -2346,41 +2346,39 @@ pub fn generate_instructions_from_move(
     }
 
     // start multi-hit
-    let hit_count;
-    match choice.multi_hit() {
-        MultiHitMove::None => {
-            hit_count = 1;
-        }
-        MultiHitMove::DoubleHit => {
-            hit_count = 2;
-        }
-        MultiHitMove::TripleHit => {
-            hit_count = 3;
-        }
+    // A branch per possible hit count. Everything except a 2-5 hit move without
+    // Skill Link resolves to a single certain count, so this is a one-element
+    // vector in almost every case and costs nothing.
+    let hit_branches: Vec<(i8, f32)> = match choice.multi_hit() {
+        MultiHitMove::None => vec![(1, 1.0)],
+        MultiHitMove::DoubleHit => vec![(2, 1.0)],
+        MultiHitMove::TripleHit => vec![(3, 1.0)],
         MultiHitMove::TwoToFiveHits => {
-            hit_count =
-                if state.get_side(&attacking_side).get_active().ability == Abilities::SKILLLINK {
-                    5
-                } else if state.get_side(&attacking_side).get_active().item == Items::LOADEDDICE {
-                    4
-                } else {
-                    3 // too lazy to implement branching here. Average is 3.2 so this is a fine approximation
-                };
+            if state.get_side(&attacking_side).get_active().ability == Abilities::SKILLLINK {
+                vec![(5, 1.0)]
+            } else if state.get_side(&attacking_side).get_active().item == Items::LOADEDDICE {
+                // the sim rerolls a 2 or a 3 into `5 - random(2)`, so 4 and 5 each
+                // end up at 0.35 + 0.15
+                vec![(4, 0.5), (5, 0.5)]
+            } else {
+                // sim/battle-actions.ts: sample([2 x7, 3 x7, 4 x3, 5 x3])
+                vec![(2, 0.35), (3, 0.35), (4, 0.15), (5, 0.15)]
+            }
         }
         MultiHitMove::PopulationBomb => {
             // population bomb checks accuracy each time but lets approximate
-            hit_count = if state.get_side(&attacking_side).get_active().item == Items::WIDELENS {
-                9
+            if state.get_side(&attacking_side).get_active().item == Items::WIDELENS {
+                vec![(9, 1.0)]
             } else {
-                6
-            };
+                vec![(6, 1.0)]
+            }
         }
         MultiHitMove::TripleAxel => {
             // triple axel checks accuracy each time but until multi-accuracy is implemented this
             // is the best we can do
-            hit_count = 3
+            vec![(3, 1.0)]
         }
-    }
+    };
 
     let (_attacker_side, defender_side) = state.get_both_sides(&attacking_side);
     let defender_active = defender_side.get_active();
@@ -2449,11 +2447,11 @@ pub fn generate_instructions_from_move(
     }
 
     if incoming_instructions.percentage != 0.0 {
-        run_move(
+        run_hit_count_branches(
             state,
             attacking_side,
             incoming_instructions,
-            hit_count,
+            &hit_branches,
             does_damage,
             regular_damage,
             choice,
@@ -2468,11 +2466,11 @@ pub fn generate_instructions_from_move(
     if let Some(branch_ins) = branch_instructions {
         if branch_ins.percentage != 0.0 {
             state.apply_instructions(&branch_ins.instruction_list);
-            run_move(
+            run_hit_count_branches(
                 state,
                 attacking_side,
                 branch_ins,
-                hit_count,
+                &hit_branches,
                 does_damage,
                 branch_damage,
                 choice,
@@ -3571,6 +3569,49 @@ fn add_end_of_turn_instructions(
             side.side_conditions.protect -= side.side_conditions.protect;
         }
     } // end volatile statuses
+}
+
+/// Split one instruction set across the possible hit counts of a multi-hit move.
+///
+/// `instructions` must already be applied to the state; every path through here
+/// leaves the state reversed, which is the same contract `run_move` has.
+fn run_hit_count_branches(
+    state: &mut State,
+    attacking_side: SideReference,
+    instructions: StateInstructions,
+    hit_branches: &[(i8, f32)],
+    does_damage: bool,
+    damage_amount: i16,
+    choice: &mut Choice,
+    defender_choice: &Choice,
+    final_instructions: &mut Vec<StateInstructions>,
+) {
+    let mut state_is_applied = true;
+    for (hit_count, chance) in hit_branches {
+        let mut branch = instructions.clone();
+        branch.update_percentage(*chance);
+        if branch.percentage == 0.0 {
+            continue;
+        }
+        if !state_is_applied {
+            state.apply_instructions(&branch.instruction_list);
+        }
+        state_is_applied = false;
+        run_move(
+            state,
+            attacking_side,
+            branch,
+            *hit_count,
+            does_damage,
+            damage_amount,
+            choice,
+            defender_choice,
+            final_instructions,
+        );
+    }
+    if state_is_applied {
+        state.reverse_instructions(&instructions.instruction_list);
+    }
 }
 
 fn run_move(
