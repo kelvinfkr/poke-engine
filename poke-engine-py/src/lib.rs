@@ -1125,6 +1125,17 @@ fn calculate_damage(
     Ok((s1_py_rolls, s2_py_rolls))
 }
 
+/// Set the static evaluation's bonus for out-speeding the opposing active.
+///
+/// Zero (the default) is the original behaviour: nothing in `evaluate` knows
+/// about speed except the boost, so two positions equal on HP score the same
+/// whether one side moves first. See `genx::evaluate::SPEED_ADVANTAGE`.
+#[pyfunction]
+fn set_speed_advantage(points: f32) {
+    poke_engine::engine::evaluate::SPEED_ADVANTAGE
+        .store(points.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Set how many turns of random play MCTS runs at each leaf before scoring it.
 ///
 /// Zero restores the original static-leaf behaviour. See `mcts::PLAYOUT_TURNS`.
@@ -1232,6 +1243,7 @@ fn py_poke_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(features, m)?)?;
     m.add_function(wrap_pyfunction!(evaluate_leaf, m)?)?;
     m.add_function(wrap_pyfunction!(set_value_model, m)?)?;
+    m.add_function(wrap_pyfunction!(set_speed_advantage, m)?)?;
     m.add_function(wrap_pyfunction!(set_value_blend, m)?)?;
     m.add_class::<PyState>()?;
     m.add_class::<PySide>()?;

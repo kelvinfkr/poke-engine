@@ -5,6 +5,17 @@ use crate::choices::MoveCategory;
 use crate::state::{Pokemon, PokemonStatus, Side, State};
 
 const POKEMON_ALIVE: f32 = 30.0;
+/// Out-speeding the opposing active, Trick Room included. Nothing else in this
+/// function knows about speed except the *boost*, so two Pokemon of equal HP
+/// scored the same whether one of them was twice as fast — and a 3v3 endgame is
+/// decided by who moves first. Zero by default: this is a search preference, not
+/// a correctness fix, so it has to be measured before it is switched on.
+pub static SPEED_ADVANTAGE: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+
+fn speed_advantage() -> f32 {
+    f32::from_bits(SPEED_ADVANTAGE.load(std::sync::atomic::Ordering::Relaxed))
+}
 const POKEMON_HP: f32 = 100.0;
 const USED_TERA: f32 = -75.0;
 
@@ -289,6 +300,20 @@ pub fn evaluate(state: &State) -> f32 {
     score -= state.side_two.side_conditions.tailwind as f32 * TAILWIND;
     score -= state.side_two.side_conditions.healing_wish as f32 * HEALING_WISH;
 
+    let bonus = speed_advantage();
+    if bonus != 0.0
+        && state.side_one.get_active_immutable().hp > 0
+        && state.side_two.get_active_immutable().hp > 0
+    {
+        let (s1, s2) = (
+            super::value_net::effective_speed(&state.side_one),
+            super::value_net::effective_speed(&state.side_two),
+        );
+        if (s1 - s2).abs() >= f32::EPSILON {
+            score += if (s1 > s2) != state.trick_room.active { bonus } else { -bonus };
+        }
+    }
+
     score
 }
 
@@ -333,5 +358,33 @@ mod toxic_count_tests {
         let mut clean = State::default();
         clean.side_one.side_conditions.toxic_count = 1;
         assert_eq!(evaluate(&toxiced(1)) - evaluate(&clean), POKEMON_TOXIC);
+    }
+
+    #[test]
+    fn the_speed_term_is_off_by_default_and_follows_trick_room() {
+        use std::sync::atomic::Ordering;
+
+        let mut state = State::default();
+        state.side_one.get_active().speed = 200;
+        state.side_two.get_active().speed = 100;
+
+        let base = evaluate(&state);
+        assert_eq!(base, evaluate(&state), "default must be the original behaviour");
+
+        SPEED_ADVANTAGE.store(20.0f32.to_bits(), Ordering::Relaxed);
+        assert_eq!(evaluate(&state) - base, 20.0);
+
+        // trick room hands the advantage to the slower side
+        state.trick_room.active = true;
+        assert_eq!(evaluate(&state) - base, -20.0);
+        state.trick_room.active = false;
+
+        // a speed tie is worth nothing either way
+        state.side_two.get_active().speed = 200;
+        assert_eq!(evaluate(&state), base);
+
+        SPEED_ADVANTAGE.store(0.0f32.to_bits(), Ordering::Relaxed);
+        state.side_two.get_active().speed = 100;
+        assert_eq!(evaluate(&state), base, "back off again");
     }
 }
