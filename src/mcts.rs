@@ -1,4 +1,15 @@
 use crate::engine::evaluate::evaluate;
+
+// The leaf the tree scores with. Older generations have no value net module;
+// genx blends the static evaluation with a loaded net (see genx::value_net).
+#[cfg(any(feature = "gen1", feature = "gen2", feature = "gen3"))]
+fn leaf(state: &State) -> f32 {
+    evaluate(state)
+}
+#[cfg(not(any(feature = "gen1", feature = "gen2", feature = "gen3")))]
+fn leaf(state: &State) -> f32 {
+    crate::engine::value_net::evaluate_leaf(state, evaluate(state))
+}
 use crate::engine::generate_instructions::generate_instructions_from_move_pair;
 use crate::engine::state::MoveChoice;
 use crate::instruction::StateInstructions;
@@ -234,7 +245,7 @@ impl Node {
             turns += 1;
         }
         let score = if battle_is_over == 0.0 {
-            sigmoid(evaluate(state) - root_eval)
+            sigmoid(leaf(state) - root_eval)
         } else if battle_is_over == -1.0 {
             0.0
         } else {
@@ -355,7 +366,7 @@ pub fn perform_mcts(
     root_node.root = true;
     let mut children: HashMap<(usize, usize, usize), Box<[Node]>> = HashMap::new();
 
-    let root_eval = evaluate(state);
+    let root_eval = leaf(state);
     let search_limit = if max_iterations > 0 {
         SearchLimit::Iterations(max_iterations)
     } else {

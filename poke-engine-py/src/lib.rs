@@ -1144,6 +1144,59 @@ fn evaluate(py_state: PyState) -> PyResult<f32> {
     Ok(evaluate_state(&state))
 }
 
+/// The engine-native feature vector a loaded value net sees at the leaf.
+#[pyfunction]
+fn features(py_state: PyState) -> PyResult<Vec<f32>> {
+    let state: State = py_state.into();
+    Ok(poke_engine::engine::value_net::features(&state))
+}
+
+/// Load a value net from JSON: {"shapes": [[out, in], ...], "weights": [[...], ...],
+/// "biases": [[...], ...]}, row-major. Pass an empty path to unload.
+#[pyfunction]
+fn set_value_model(path: String) -> PyResult<()> {
+    use poke_engine::engine::value_net::{set_model, ValueNet};
+    if path.is_empty() {
+        set_model(None);
+        return Ok(());
+    }
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{path}: {e}")))?;
+    let v: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{path}: {e}")))?;
+    let mat = |key: &str| -> PyResult<Vec<Vec<f32>>> {
+        v[key]
+            .as_array()
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err(format!("missing {key}")))?
+            .iter()
+            .map(|row| {
+                row.as_array()
+                    .map(|r| r.iter().map(|x| x.as_f64().unwrap_or(0.0) as f32).collect())
+                    .ok_or_else(|| {
+                        pyo3::exceptions::PyValueError::new_err(format!("bad row in {key}"))
+                    })
+            })
+            .collect()
+    };
+    let shapes: Vec<(usize, usize)> = mat("shapes")?
+        .iter()
+        .map(|r| (r[0] as usize, r[1] as usize))
+        .collect();
+    let net = ValueNet {
+        weights: mat("weights")?,
+        biases: mat("biases")?,
+        shapes,
+    };
+    set_model(Some(net));
+    Ok(())
+}
+
+/// Blend between the static leaf (0.0) and the loaded net (1.0).
+#[pyfunction]
+fn set_value_blend(alpha: f32) {
+    poke_engine::engine::value_net::set_blend(alpha);
+}
+
 #[pymodule]
 #[pyo3(name = "poke_engine")]
 fn py_poke_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -1153,6 +1206,9 @@ fn py_poke_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(mcts, m)?)?;
     m.add_function(wrap_pyfunction!(evaluate, m)?)?;
     m.add_function(wrap_pyfunction!(set_playout_turns, m)?)?;
+    m.add_function(wrap_pyfunction!(features, m)?)?;
+    m.add_function(wrap_pyfunction!(set_value_model, m)?)?;
+    m.add_function(wrap_pyfunction!(set_value_blend, m)?)?;
     m.add_class::<PyState>()?;
     m.add_class::<PySide>()?;
     m.add_class::<PySideConditions>()?;
