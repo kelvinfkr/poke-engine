@@ -1194,6 +1194,16 @@ fn set_value_model(path: String) -> PyResult<()> {
         .iter()
         .map(|r| (r[0] as usize, r[1] as usize))
         .collect();
+    // A net trained on an older, narrower feature set would otherwise load fine
+    // and read whatever happens to sit past its input width — silently, which is
+    // the worst possible failure for a value function.
+    let expected = poke_engine::engine::value_net::FEATURE_COUNT;
+    if shapes.first().map(|s| s.1) != Some(expected) {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "{path}: the net takes {:?} inputs but this engine's features are {expected}",
+            shapes.first().map(|s| s.1)
+        )));
+    }
     let net = ValueNet {
         weights: mat("weights")?,
         biases: mat("biases")?,
