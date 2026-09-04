@@ -15902,6 +15902,86 @@ fn test_loadeddice_rerolls_two_and_three_into_four_or_five() {
 }
 
 #[test]
+fn test_ingrain_and_aquaring_heal_one_sixteenth_at_end_of_turn() {
+    let mut state = State::default();
+    state.side_one.get_active().hp = 50;
+    state
+        .side_one
+        .volatile_statuses
+        .insert(PokemonVolatileStatus::INGRAIN);
+    state.side_two.get_active().hp = 50;
+    state
+        .side_two
+        .volatile_statuses
+        .insert(PokemonVolatileStatus::AQUARING);
+
+    let vec_of_instructions =
+        set_moves_on_pkmn_and_call_generate_instructions(&mut state, Choices::SPLASH, Choices::SPLASH);
+
+    assert_eq!(
+        vec![StateInstructions {
+            percentage: 100.0,
+            // residuals run in speed order, as they do in the simulator
+            instruction_list: vec![
+                Instruction::Heal(HealInstruction {
+                    side_ref: SideReference::SideTwo,
+                    heal_amount: 6,
+                }),
+                Instruction::Heal(HealInstruction {
+                    side_ref: SideReference::SideOne,
+                    heal_amount: 6,
+                }),
+            ],
+        }],
+        vec_of_instructions
+    );
+}
+
+#[test]
+fn test_ingrain_traps_its_own_user_but_shedshell_still_escapes() {
+    let mut state = State::default();
+    state
+        .side_one
+        .volatile_statuses
+        .insert(PokemonVolatileStatus::INGRAIN);
+    let opponent = state.side_two.get_active_immutable().clone();
+
+    assert!(state.side_one.trapped(&opponent));
+
+    // ghost does not escape ingrain: the simulator's ghost exemption only covers
+    // trapping applied by the opponent
+    state.side_one.get_active().types = (PokemonType::GHOST, PokemonType::TYPELESS);
+    assert!(state.side_one.trapped(&opponent));
+
+    state.side_one.get_active().item = Items::SHEDSHELL;
+    assert!(!state.side_one.trapped(&opponent));
+}
+
+#[test]
+fn test_ingrain_blocks_a_forced_switch() {
+    let mut state = State::default();
+    state
+        .side_two
+        .volatile_statuses
+        .insert(PokemonVolatileStatus::INGRAIN);
+
+    let vec_of_instructions = set_moves_on_pkmn_and_call_generate_instructions(
+        &mut state,
+        Choices::WHIRLWIND,
+        Choices::SPLASH,
+    );
+
+    // no ToggleSideTwoForceSwitch / switch instruction: whirlwind does nothing
+    assert_eq!(
+        vec![StateInstructions {
+            percentage: 100.0,
+            instruction_list: vec![],
+        }],
+        vec_of_instructions
+    );
+}
+
+#[test]
 fn test_scaleshot_only_boosts_once() {
     let mut state = State::default();
 

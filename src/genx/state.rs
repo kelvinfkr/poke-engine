@@ -1112,7 +1112,19 @@ impl Side {
         {
             return true;
         }
-        if active_pkmn.item == Items::SHEDSHELL || active_pkmn.has_type(&PokemonType::GHOST) {
+        if active_pkmn.item == Items::SHEDSHELL {
+            return false;
+        }
+        // ingrain traps its own user; the simulator's Ghost escape only covers
+        // trapping applied by the *opponent*, while Shed Shell (onTrapPokemon
+        // priority -10) clears every kind, so this sits between the two
+        if self
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::INGRAIN)
+        {
+            return true;
+        }
+        if active_pkmn.has_type(&PokemonType::GHOST) {
             return false;
         } else if self
             .volatile_statuses

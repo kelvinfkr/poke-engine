@@ -3180,6 +3180,32 @@ fn add_end_of_turn_instructions(
         ability_end_of_turn(state, side_ref, &mut incoming_instructions);
     }
 
+    // aqua ring / ingrain, both 1/16 of max HP. The simulator runs these at
+    // residual order 6 and 7, between Leftovers (5) and Leech Seed (8).
+    for side_ref in sides {
+        let side = state.get_side(side_ref);
+        let heals = side
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::AQUARING) as i16
+            + side
+                .volatile_statuses
+                .contains(&PokemonVolatileStatus::INGRAIN) as i16;
+        for _ in 0..heals {
+            let active_pkmn = side.get_active();
+            if active_pkmn.hp == 0 || active_pkmn.hp == active_pkmn.maxhp {
+                break;
+            }
+            let heal_amount = cmp::min(active_pkmn.maxhp / 16, active_pkmn.maxhp - active_pkmn.hp);
+            active_pkmn.hp += heal_amount;
+            incoming_instructions
+                .instruction_list
+                .push(Instruction::Heal(HealInstruction {
+                    side_ref: *side_ref,
+                    heal_amount,
+                }));
+        }
+    }
+
     // leechseed sap
     for side_ref in sides {
         let (leechseed_side, other_side) = state.get_both_sides(side_ref);
@@ -3682,6 +3708,10 @@ fn run_move(
             .get_active_immutable()
             .ability
             != Abilities::GUARDDOG
+        && !state
+            .get_side_immutable(&attacking_side.get_other_side())
+            .volatile_statuses
+            .contains(&PokemonVolatileStatus::INGRAIN)
     {
         get_instructions_from_drag(state, &attacking_side, instructions, final_instructions);
         return;
