@@ -212,10 +212,10 @@ fn hash_step(accumulator: u64, value: u64) -> u64 {
 
 /// Everything about a Pokemon that changes a damage roll, except HP and boosts.
 ///
-/// Only five fields, because everything else that matters moves with them: the
-/// stats, the types and the moves change when the species does (a Mega, a forme
-/// change) and the species is in here. This runs for every living Pokemon on
-/// every leaf, so its length is a cost.
+/// Five fields, because everything else that matters moves with them: the stats,
+/// the types and the moves change when the species does (a Mega, a forme change)
+/// and the species is in here. This runs for every living Pokemon on every leaf,
+/// so its length is a cost.
 fn pokemon_fingerprint(pokemon: &Pokemon) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     h = hash_step(h, pokemon.id as i16 as u64);
@@ -240,6 +240,33 @@ fn global_fingerprint(state: &State) -> u64 {
     h
 }
 
+/// The HP a Pokemon is given while the table is built: one point below full.
+///
+/// The premise of the table is that damage does not depend on HP, and that is
+/// nearly true. The exceptions are all at thresholds: the engine's own hooks
+/// halve the incoming hit for Multiscale and Shadow Shield at *exactly* full HP,
+/// halve the outgoing one for Defeatist at half, and raise it for Overgrow /
+/// Blaze / Torrent / Swarm at a third, while `modify_choice` scales Eruption and
+/// Water Spout by the ratio.
+///
+/// Building one point below full deals with the first of those, which is the one
+/// that would otherwise be *wrong* rather than merely absent: `turns_to_ko`
+/// already models Multiscale and Shadow Shield as "the first hit is halved" —
+/// which is what they do, since the second hit lands on a target that is no
+/// longer full — so letting the engine's hook halve the cached roll as well
+/// would count it twice, and would keep counting it for every later hit.
+///
+/// The rest are *absent*: a pinch ability never fires in the table and a
+/// ratio-scaled move is priced near full. That is the same limitation
+/// `bot/search/wincon.py` has, and it is deliberate rather than free — putting an
+/// HP band in the cache key instead was built and measured, and it triples the
+/// variants a pair can have: the term went from +16% of a search iteration to
+/// +63%. Threshold abilities that only bite below a third of HP are not worth
+/// four times the cost of the whole term.
+fn table_hp(maxhp: i16) -> i16 {
+    (maxhp - 1).max(1)
+}
+
 /// A side as a bench member would meet it: that member active, no boosts, no
 /// volatile statuses. Boosts are lost on switch-out, so a bench member does not
 /// carry the active's; the active's own boosts are put back analytically at the
@@ -256,6 +283,12 @@ fn scratch_side(side: &Side, slot: PokemonIndex) -> Side {
     out.evasion_boost = 0;
     out.volatile_statuses = VolatileStatusBitset(0);
     out.substitute_health = 0;
+    for index in 0..MAX_SLOTS {
+        let pokemon = &mut out.pokemon[slot_of(index)];
+        if pokemon.maxhp > 0 {
+            pokemon.hp = table_hp(pokemon.maxhp);
+        }
+    }
     out
 }
 
@@ -1017,6 +1050,48 @@ mod tests {
         assert!(
             (sashed - 2.0).abs() < 1e-4,
             "Focus Sash costs exactly one whole turn: {sashed} vs {plain}"
+        );
+    }
+
+    #[test]
+    fn multiscale_is_worth_one_halved_hit_and_not_two() {
+        // The engine's own `ability_modify_attack_against` halves the incoming
+        // hit while the target is at exactly full HP, and `turns_to_ko` halves
+        // the first hit too. Counting both would make a full-HP Dragonite twice
+        // the wall it is — and would keep halving every later hit, which is not
+        // what Multiscale does. The table is therefore built one HP below full.
+        let mut plain = symmetric();
+        let mut multiscale = symmetric();
+        multiscale.side_two.pokemon[slot_of(0)].ability = Abilities::MULTISCALE;
+        multiscale.side_two.pokemon[slot_of(1)].ability = Abilities::MULTISCALE;
+        // the comparison that bounds it: halving *every* hit, not just the first
+        let mut double_defense = symmetric();
+        for index in 0..2 {
+            double_defense.side_two.pokemon[slot_of(index)].defense *= 2;
+            double_defense.side_two.pokemon[slot_of(index)].special_defense *= 2;
+        }
+
+        let base = fresh(&plain);
+        let with_ability = fresh(&multiscale);
+        let with_bulk = fresh(&double_defense);
+        assert!(
+            with_ability < base,
+            "Multiscale must be worth something: {with_ability} vs {base}"
+        );
+        assert!(
+            with_ability > with_bulk,
+            "one halved hit must be worth less than halving every hit: \
+             {with_ability} vs {with_bulk}"
+        );
+        // and it must go away the moment the target is not full
+        plain.side_two.pokemon[slot_of(0)].hp = 99;
+        multiscale.side_two.pokemon[slot_of(0)].hp = 99;
+        let chipped_plain = fresh(&plain);
+        let chipped_ability = fresh(&multiscale);
+        assert!(
+            (chipped_ability - chipped_plain).abs() < (with_ability - base).abs(),
+            "a chipped Multiscale is worth less than a full one: \
+             {chipped_ability} - {chipped_plain} against {with_ability} - {base}"
         );
     }
 
