@@ -866,7 +866,7 @@ mod tests {
     use super::*;
     use crate::choices::{Choice, Choices, MoveCategory};
     use crate::pokemon::PokemonName;
-    use crate::state::{Move, PokemonMoveIndex, PokemonType};
+    use crate::state::{Move, PokemonType};
 
     fn damaging_move(id: Choices, base_power: f32, category: MoveCategory) -> Move {
         let mut choice = Choice::default();
@@ -924,7 +924,8 @@ mod tests {
         let value = fresh(&symmetric());
         assert!(
             value.abs() < 1e-5,
-            "a mirror match must read exactly level, not {value}"
+            "{}",
+            format!("a mirror match must read exactly level, not {value}")
         );
     }
 
@@ -938,7 +939,10 @@ mod tests {
         let value = fresh(&state);
         assert!(
             value > 0.9,
-            "answering everything while nothing answers you should be near +1, not {value}"
+            "{}",
+            format!(
+                "answering everything while nothing answers you should be near +1, not {value}"
+            )
         );
     }
 
@@ -951,7 +955,8 @@ mod tests {
         let value = fresh(&state);
         assert!(
             value < -0.9,
-            "a threat nothing on my side beats should be near -1, not {value}"
+            "{}",
+            format!("a threat nothing on my side beats should be near -1, not {value}")
         );
     }
 
@@ -963,7 +968,7 @@ mod tests {
         state.side_two.pokemon[slot_of(0)].special_defense = 400;
         state.side_one.pokemon[slot_of(0)].attack = 400;
         let base = fresh(&state);
-        assert!(base.is_finite(), "{base}");
+        assert!(base.is_finite(), "{}", format!("{base}"));
 
         let mut without_answer = state.clone();
         without_answer.side_one.pokemon[slot_of(0)].hp = 0;
@@ -975,8 +980,11 @@ mod tests {
 
         assert!(
             lost_answer < lost_spare,
-            "losing the only answer ({lost_answer}) must cost more than losing the spare \
+            "{}",
+            format!(
+                "losing the only answer ({lost_answer}) must cost more than losing the spare \
              ({lost_spare}), from {base}"
+            )
         );
     }
 
@@ -991,7 +999,8 @@ mod tests {
         let level = fresh(&state);
         assert!(
             faster > level,
-            "out-speeding an identical side must read better: {faster} vs {level}"
+            "{}",
+            format!("out-speeding an identical side must read better: {faster} vs {level}")
         );
     }
 
@@ -1006,7 +1015,11 @@ mod tests {
         let scaled = coverage_term(&state);
         let raw = coverage(&state);
         set_wincon_coverage_weight(0.0);
-        assert!((scaled - 100.0 * raw).abs() < 1e-3, "{scaled} vs {raw}");
+        assert!(
+            (scaled - 100.0 * raw).abs() < 1e-3,
+            "{}",
+            format!("{scaled} vs {raw}")
+        );
         assert_eq!(coverage_term(&state), 0.0, "back off again");
     }
 
@@ -1021,7 +1034,8 @@ mod tests {
         let after = coverage(&state);
         assert!(
             after < before - 0.05,
-            "a Mega that hits far harder must change the matrix: {after} vs {before}"
+            "{}",
+            format!("a Mega that hits far harder must change the matrix: {after} vs {before}")
         );
     }
 
@@ -1031,10 +1045,15 @@ mod tests {
         // just over the maximum is two, and the middle is not an average
         let under = turns_to_ko(0.5, 0.6, 1.0, 0.49, false, false);
         let over = turns_to_ko(0.5, 0.6, 1.0, 0.61, false, false);
-        assert!(under < 1.05, "under the minimum roll is one hit: {under}");
+        assert!(
+            under < 1.05,
+            "{}",
+            format!("under the minimum roll is one hit: {under}")
+        );
         assert!(
             over > 1.9 && over < 2.05,
-            "over the maximum roll is two hits: {over}"
+            "{}",
+            format!("over the maximum roll is two hits: {over}")
         );
     }
 
@@ -1045,11 +1064,13 @@ mod tests {
         let sashed = turns_to_ko(1.1, 1.2, 1.0, 1.0, false, true);
         assert!(
             (plain - 1.0).abs() < 1e-4,
-            "a guaranteed OHKO is one turn: {plain}"
+            "{}",
+            format!("a guaranteed OHKO is one turn: {plain}")
         );
         assert!(
             (sashed - 2.0).abs() < 1e-4,
-            "Focus Sash costs exactly one whole turn: {sashed} vs {plain}"
+            "{}",
+            format!("Focus Sash costs exactly one whole turn: {sashed} vs {plain}")
         );
     }
 
@@ -1076,12 +1097,16 @@ mod tests {
         let with_bulk = fresh(&double_defense);
         assert!(
             with_ability < base,
-            "Multiscale must be worth something: {with_ability} vs {base}"
+            "{}",
+            format!("Multiscale must be worth something: {with_ability} vs {base}")
         );
         assert!(
             with_ability > with_bulk,
-            "one halved hit must be worth less than halving every hit: \
+            "{}",
+            format!(
+                "one halved hit must be worth less than halving every hit: \
              {with_ability} vs {with_bulk}"
+            )
         );
         // and it must go away the moment the target is not full
         plain.side_two.pokemon[slot_of(0)].hp = 99;
@@ -1090,8 +1115,11 @@ mod tests {
         let chipped_ability = fresh(&multiscale);
         assert!(
             (chipped_ability - chipped_plain).abs() < (with_ability - base).abs(),
-            "a chipped Multiscale is worth less than a full one: \
+            "{}",
+            format!(
+                "a chipped Multiscale is worth less than a full one: \
              {chipped_ability} - {chipped_plain} against {with_ability} - {base}"
+            )
         );
     }
 
@@ -1113,8 +1141,8 @@ mod tests {
         let out_of_pp = fresh(&state);
         assert!(
             out_of_pp > 0.9,
-            "a move with no PP left cannot be their answer: {out_of_pp}"
+            "{}",
+            format!("a move with no PP left cannot be their answer: {out_of_pp}")
         );
-        let _ = PokemonMoveIndex::M0;
     }
 }
