@@ -299,6 +299,11 @@ pub fn evaluate(state: &State) -> f32 {
     score -= state.side_two.side_conditions.tailwind as f32 * TAILWIND;
     score -= state.side_two.side_conditions.healing_wish as f32 * HEALING_WISH;
 
+    // The win-condition term: can I still answer everything they have left, and
+    // can they answer me. Zero-weighted by default and it returns before doing
+    // any work, so the default build is byte-identical (`genx::wincon`).
+    score += super::wincon::coverage_term(state);
+
     let bonus = speed_advantage();
     if bonus != 0.0
         && state.side_one.get_active_immutable().hp > 0

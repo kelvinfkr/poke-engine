@@ -576,14 +576,44 @@ pub fn calculate_damage(
     choice: &Choice,
     _damage_rolls: DamageRolls,
 ) -> Option<(i16, i16)> {
+    let (attacking_side, defending_side) = state.get_both_sides_immutable(attacking_side);
+    calculate_damage_between(
+        state,
+        attacking_side,
+        attacking_side.get_active_immutable(),
+        defending_side,
+        defending_side.get_active_immutable(),
+        choice,
+        _damage_rolls,
+    )
+}
+
+/// `calculate_damage` for a pair that is not necessarily the two actives.
+///
+/// The body is the old `calculate_damage`; the only change is that the attacker
+/// and the defender are handed in rather than read off `get_active_immutable()`.
+/// That is what lets a caller score a *bench* pair — "if these two met, who wins"
+/// — which is the primitive the win-condition leaf term is built on.
+///
+/// One requirement the type system cannot state: the `Side` passed for each
+/// Pokemon must have its `active_index` pointing at that Pokemon, because
+/// `Side::calculate_boosted_stat` reads the active. A bench member therefore
+/// wants a *scratch* side — its own index, boosts zeroed (boosts are lost on
+/// switch-out) — which is exactly what `engine::wincon` builds.
+pub fn calculate_damage_between(
+    state: &State,
+    attacking_side: &Side,
+    attacker: &Pokemon,
+    defending_side: &Side,
+    defender: &Pokemon,
+    choice: &Choice,
+    _damage_rolls: DamageRolls,
+) -> Option<(i16, i16)> {
     if choice.category == MoveCategory::Status || choice.category == MoveCategory::Switch {
         return None;
     } else if choice.base_power == 0.0 {
         return Some((0, 0));
     }
-    let (attacking_side, defending_side) = state.get_both_sides_immutable(attacking_side);
-    let attacker = attacking_side.get_active_immutable();
-    let defender = defending_side.get_active_immutable();
 
     let effective_weather = if attacker.ability == Abilities::MEGASOL {
         Weather::SUN

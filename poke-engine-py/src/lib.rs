@@ -1138,6 +1138,29 @@ fn set_speed_advantage(points: f32) {
         .store(points.to_bits(), std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Set the static evaluation's weight on the win-condition coverage term.
+///
+/// Zero (the default) is the original behaviour and costs nothing: the term
+/// returns before doing any work. The term is
+/// `prod_j c_j - prod_i d_i` over the 1v1 win matrix — "do I still answer
+/// everything they have left, and do they answer me" — in [-1, 1], so on the
+/// evaluation's own scale (`POKEMON_HP` = 100) a weight of 50-100 is a real but
+/// not overwhelming nudge. See `genx::wincon` and ADR 0038.
+#[pyfunction]
+fn set_wincon_weight(points: f32) {
+    poke_engine::engine::wincon::set_wincon_coverage_weight(points);
+}
+
+/// The win-condition coverage term itself, unweighted, from side one's view.
+///
+/// Exposed so the Python reference (`bot/search/wincon.py`) can be compared
+/// against this implementation on real positions; the search does not call it.
+#[pyfunction]
+fn wincon_coverage(py_state: PyState) -> PyResult<f32> {
+    let state: State = py_state.into();
+    Ok(poke_engine::engine::wincon::coverage(&state))
+}
+
 /// Set how many turns of random play MCTS runs at each leaf before scoring it.
 ///
 /// Zero restores the original static-leaf behaviour. See `mcts::PLAYOUT_TURNS`.
@@ -1247,6 +1270,8 @@ fn py_poke_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(set_value_model, m)?)?;
     m.add_function(wrap_pyfunction!(set_speed_advantage, m)?)?;
     m.add_function(wrap_pyfunction!(set_value_blend, m)?)?;
+    m.add_function(wrap_pyfunction!(set_wincon_weight, m)?)?;
+    m.add_function(wrap_pyfunction!(wincon_coverage, m)?)?;
     m.add_class::<PyState>()?;
     m.add_class::<PySide>()?;
     m.add_class::<PySideConditions>()?;
